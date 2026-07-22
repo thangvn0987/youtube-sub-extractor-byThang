@@ -90,6 +90,18 @@ function injectToolButtonStyles() {
         #custom-sub-panel .ytse-spin {
             animation: ytse-spin .8s linear infinite;
         }
+        #custom-sub-panel .sub-block {
+            color: #777777;
+            font-weight: normal;
+            margin-bottom: 12px;
+            line-height: 1.4;
+            position: relative;
+            transition: color 0.25s ease, text-shadow 0.25s ease;
+        }
+        #custom-sub-panel .sub-block.ytse-active {
+            color: #ffffff;
+            font-weight: bold;
+        }
     `;
     document.head.appendChild(style);
 }
@@ -348,49 +360,40 @@ export function resetLayout() {
     }
 }
 
-export function getTranscriptHTML(currentTime) {
+export function syncTranscript(currentTime) {
     if (!SubtitleState.parsedSubs || SubtitleState.parsedSubs.length === 0) {
-        return {
-            html: "Vui lòng bật hiển thị phụ đề CC trên video để hệ thống bắt dữ liệu.",
-            context: "",
-            startIndex: -1
-        };
+        const textArea = document.getElementById('custom-sub-text');
+        if (textArea && !textArea.innerText.includes("Vui lòng bật")) {
+            textArea.innerHTML = "Vui lòng bật hiển thị phụ đề CC trên video để hệ thống bắt dữ liệu.";
+        }
+        return;
     }
 
+    const LOOKAHEAD = 0.3;
+    const t = currentTime + LOOKAHEAD;
     let currentIndex = -1;
-    const captionSegments = document.querySelectorAll('.ytp-caption-segment');
-    let currentUiText = Array.from(captionSegments).map(span => span.textContent).join(' ').trim();
 
-    if (currentUiText) {
-        let cleanUiText = currentUiText.toLowerCase().replace(/[.,!?\n]/g, '').replace(/\s+/g, ' ');
-        for (let i = 0; i < SubtitleState.parsedSubs.length; i++) {
-            let sub = SubtitleState.parsedSubs[i];
-            if (Math.abs(currentTime - sub.start) <= 5.0 || Math.abs(currentTime - sub.end) <= 5.0) {
-                let cleanSubText = sub.text.toLowerCase().replace(/[.,!?\n]/g, '').replace(/\s+/g, ' ');
-                if (cleanSubText.includes(cleanUiText) || cleanUiText.includes(cleanSubText)) {
-                    currentIndex = i;
-                    break;
-                }
-            }
+    for (let i = 0; i < SubtitleState.parsedSubs.length; i++) {
+        let sub = SubtitleState.parsedSubs[i];
+        if (t >= sub.start && t <= sub.end + 0.2) {
+            currentIndex = i;
+            break;
         }
     }
 
     if (currentIndex === -1) {
-        for (let i = 0; i < SubtitleState.parsedSubs.length; i++) {
-            if (currentTime >= SubtitleState.parsedSubs[i].start && currentTime <= SubtitleState.parsedSubs[i].end + 0.2) {
+        for (let i = 0; i < SubtitleState.parsedSubs.length - 1; i++) {
+            if (t > SubtitleState.parsedSubs[i].end && t < SubtitleState.parsedSubs[i+1].start) {
                 currentIndex = i;
                 break;
             }
         }
     }
 
-    if (currentIndex === -1) {
-        return {
-            html: "Không có tiếng động ở mốc thời gian này.",
-            context: "",
-            startIndex: -1
-        };
-    }
+    if (currentIndex === -1) return;
+
+    if (currentIndex === UIState.lastRenderedIndex) return;
+    UIState.lastRenderedIndex = currentIndex;
 
     let blockSize = Config.ctx * 2 + 1;
     let startIndex, endIndex;
@@ -406,34 +409,49 @@ export function getTranscriptHTML(currentTime) {
         endIndex = Math.min(startIndex + blockSize - 1, SubtitleState.parsedSubs.length - 1);
     }
 
-    let html = "";
-    let contextText = "";
-    for (let i = startIndex; i <= endIndex; i++) {
-        let sub = SubtitleState.parsedSubs[i];
-        let isCurrent = (i === currentIndex);
-        let color = isCurrent ? "#ffffff" : "#777777";
-        let weight = isCurrent ? "bold" : "normal";
-        contextText += sub.text + " ";
+    const textArea = document.getElementById('custom-sub-text');
+    if (!textArea) return;
 
-        html += `<div class="sub-block"
-            data-index="${i}"
-            data-start="${sub.start}"
-            data-end="${sub.end}"
-            data-text="${escapeAttr(sub.text)}"
-            style="color: ${color}; font-weight: ${weight}; margin-bottom: 12px; line-height: 1.4; position: relative;">`;
-        html += escapeHtml(sub.text);
+    if (startIndex !== UIState.lastStartIndex) {
+        UIState.lastStartIndex = startIndex;
+        
+        let html = "";
+        let contextText = "";
+        for (let i = startIndex; i <= endIndex; i++) {
+            let sub = SubtitleState.parsedSubs[i];
+            let isActive = (i === currentIndex) ? "ytse-active" : "";
+            contextText += sub.text + " ";
 
-        if (Config.autoVi && sub.text_vi) {
-            html += `<br><span style="color: #66aa66; font-size: 15px; font-weight: normal;">${escapeHtml(sub.text_vi)}</span>`;
+            html += `<div class="sub-block ${isActive}" data-index="${i}" data-start="${sub.start}" data-end="${sub.end}" data-text="${escapeAttr(sub.text)}">`;
+            html += escapeHtml(sub.text);
+
+            if (Config.autoVi && sub.text_vi) {
+                html += `<br><span style="color: #66aa66; font-size: 15px; font-weight: normal;">${escapeHtml(sub.text_vi)}</span>`;
+            }
+            html += `</div>`;
         }
-        html += `</div>`;
-    }
 
-    return {
-        html: html,
-        context: contextText.trim(),
-        startIndex: startIndex
-    };
+        UIState.lastContextText = contextText.trim();
+        
+        textArea.style.opacity = '0';
+        textArea.innerHTML = safeHTML(html);
+        
+        setTimeout(() => {
+            textArea.style.transition = 'opacity 0.25s ease';
+            textArea.style.opacity = '1';
+        }, 50);
+
+    } else {
+        const allBlocks = textArea.querySelectorAll('.sub-block');
+        allBlocks.forEach(block => {
+            const idx = parseInt(block.dataset.index);
+            if (idx === currentIndex) {
+                block.classList.add('ytse-active');
+            } else {
+                block.classList.remove('ytse-active');
+            }
+        });
+    }
 }
 
 export function injectUI() {
@@ -546,9 +564,7 @@ export function injectUI() {
         if (video) {
             UIState.lastRenderedIndex = -1;
             UIState.lastStartIndex = -1;
-            const res = getTranscriptHTML(video.currentTime);
-            document.getElementById('custom-sub-text').innerHTML = safeHTML(res.html);
-            UIState.lastContextText = res.context;
+            syncTranscript(video.currentTime);
         }
     });
 
@@ -619,7 +635,7 @@ export function injectUI() {
             const block = container.closest ? container.closest('.sub-block') : null;
             if (block) return block;
         }
-        return document.querySelector('.sub-block[style*="font-weight: bold"]') || textArea;
+        return document.querySelector('.sub-block.ytse-active') || textArea;
     }
 
     btnGoogle.addEventListener('click', () => {
