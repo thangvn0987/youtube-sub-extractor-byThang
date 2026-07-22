@@ -369,10 +369,10 @@ export function syncTranscript(currentTime) {
         return;
     }
 
-    const LOOKAHEAD = 0.3;
-    const t = currentTime + LOOKAHEAD;
+    const t = currentTime;
     let currentIndex = -1;
 
+    // Tìm index của câu hiện tại theo thời gian thực
     for (let i = 0; i < SubtitleState.parsedSubs.length; i++) {
         let sub = SubtitleState.parsedSubs[i];
         if (t >= sub.start && t <= sub.end + 0.2) {
@@ -381,6 +381,7 @@ export function syncTranscript(currentTime) {
         }
     }
 
+    // Xử lý khoảng trống giữa các câu
     if (currentIndex === -1) {
         for (let i = 0; i < SubtitleState.parsedSubs.length - 1; i++) {
             if (t > SubtitleState.parsedSubs[i].end && t < SubtitleState.parsedSubs[i+1].start) {
@@ -391,6 +392,11 @@ export function syncTranscript(currentTime) {
     }
 
     if (currentIndex === -1) return;
+
+    // THỰC HIỆN ĐÚNG CHIẾN THUẬT: ÉP LỆCH ĐI 1 CÂU
+    if (currentIndex < SubtitleState.parsedSubs.length - 1) {
+        currentIndex = currentIndex + 1;
+    }
 
     if (currentIndex === UIState.lastRenderedIndex) return;
     UIState.lastRenderedIndex = currentIndex;
