@@ -5,8 +5,8 @@
 // @author
 // @description  Kiến trúc Modular, bắt chuẩn sub ASR, tự động đồng bộ Tampermonkey
 // @license      ISC
-// @downloadURL  https://raw.githubusercontent.com/thangvn0987/youtube-sub-extractor-byThang/main/dist/youtube-subtitle-extractor.user.js
-// @updateURL    https://raw.githubusercontent.com/thangvn0987/youtube-sub-extractor-byThang/main/dist/youtube-subtitle-extractor.user.js
+// @downloadURL  https://raw.githubusercontent.com/thangvn0987/youtube-sub-extractor-byThang/main/dist/youtube-sub-extractor.user.js
+// @updateURL    https://raw.githubusercontent.com/thangvn0987/youtube-sub-extractor-byThang/main/dist/youtube-sub-extractor.user.js
 // @match        *://*.youtube.com/*
 // @connect      translate.googleapis.com
 // @connect      api.openai.com
