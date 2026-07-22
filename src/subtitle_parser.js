@@ -1,0 +1,178 @@
+export const SubtitleState = {
+    currentVideoId: '',
+    rawSrtData: '',
+    parsedSubs: [],
+    enSubs: [],
+    viSubs: []
+};
+
+function formatTime(seconds) {
+    let h = Math.floor(seconds / 3600);
+    let m = Math.floor((seconds % 3600) / 60);
+    let s = Math.floor(seconds % 60);
+    let ms = Math.floor((seconds - Math.floor(seconds)) * 1000);
+    return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')},${String(ms).padStart(3, '0')}`;
+}
+
+function mergeSubs() {
+    if (SubtitleState.enSubs.length === 0) return;
+    let tempRaw = "";
+    SubtitleState.parsedSubs = SubtitleState.enSubs.map((en, i) => {
+        let viText = "";
+        if (SubtitleState.viSubs.length > 0) {
+            let vi = SubtitleState.viSubs.find(v => Math.abs(v.start - en.start) < 0.5);
+            if (!vi) vi = SubtitleState.viSubs[i];
+            if (vi) viText = vi.text;
+        }
+        tempRaw += (i + 1) + "\n";
+        tempRaw += formatTime(en.start) + " --> " + formatTime(en.end) + "\n";
+        tempRaw += en.text + "\n\n";
+        return {
+            start: en.start,
+            end: en.end,
+            text: en.text,
+            text_vi: viText
+        };
+    });
+    SubtitleState.rawSrtData = tempRaw;
+    let vid = new URLSearchParams(window.location.search).get('v');
+    if (!vid && window.location.pathname.includes('/shorts/')) {
+        vid = window.location.pathname.split('/shorts/')[1];
+    }
+    SubtitleState.currentVideoId = vid || '';
+}
+
+function processInterceptedData(url, text, isVietsub) {
+    if (!text) return;
+    try {
+        const jsonObj = JSON.parse(text);
+        if (jsonObj.events) {
+            let tempSubs = [];
+            for (let event of jsonObj.events) {
+                if (!event.segs) continue;
+                let startMs = event.tStartMs || 0;
+                let durationMs = event.dDurationMs || 0;
+                let sentence = event.segs
+                    .map(seg => seg.utf8)
+                    .join("")
+                    .replace(/\n/g, " ")
+                    .trim();
+                if (!sentence) continue;
+                let startSec = startMs / 1000;
+                let endSec = (startMs + durationMs) / 1000;
+
+                if (!tempSubs.some(s => Math.abs(s.start - startSec) < 0.1 && s.text === sentence)) {
+                    tempSubs.push({
+                        start: startSec,
+                        end: endSec,
+                        text: sentence
+                    });
+                }
+            }
+            if (!isVietsub) {
+                SubtitleState.enSubs = tempSubs;
+                if (!url.includes('tlang=')) {
+                    let viUrl = url + (url.includes('?') ? '&' : '?') + 'tlang=vi';
+                    fetch(viUrl)
+                        .then(r => r.text())
+                        .then(t => processInterceptedData(viUrl, t, true))
+                        .catch(() => {});
+                }
+            } else {
+                SubtitleState.viSubs = tempSubs;
+            }
+            mergeSubs();
+        }
+    } catch(e) {
+        try {
+            const parser = new DOMParser();
+            const xmlDoc = parser.parseFromString(text, "text/xml");
+            const textNodes = xmlDoc.getElementsByTagName('text');
+            if (textNodes.length > 0) {
+                let tempSubs = [];
+                for (let i = 0; i < textNodes.length; i++) {
+                    let node = textNodes[i];
+                    let start = parseFloat(node.getAttribute('start'));
+                    let dur = parseFloat(node.getAttribute('dur'));
+                    let sentence = node.textContent
+                        .replace(/&amp;/g, '&')
+                        .replace(/&quot;/g, '"')
+                        .replace(/&#39;/g, "'")
+                        .replace(/&lt;/g, '<')
+                        .replace(/&gt;/g, '>')
+                        .trim();
+                    if (!tempSubs.some(s => Math.abs(s.start - start) < 0.1 && s.text === sentence)) {
+                        tempSubs.push({
+                            start: start,
+                            end: start + dur,
+                            text: sentence
+                        });
+                    }
+                }
+                if (!isVietsub) {
+                    SubtitleState.enSubs = tempSubs;
+                    if (!url.includes('tlang=')) {
+                        let viUrl = url + (url.includes('?') ? '&' : '?') + 'tlang=vi';
+                        fetch(viUrl)
+                            .then(r => r.text())
+                            .then(t => processInterceptedData(viUrl, t, true))
+                            .catch(() => {});
+                    }
+                } else {
+                    SubtitleState.viSubs = tempSubs;
+                }
+                mergeSubs();
+            }
+        } catch(ex) {}
+    }
+}
+
+export function setupInterceptors() {
+    const origOpen = XMLHttpRequest.prototype.open;
+    XMLHttpRequest.prototype.open = function(method, url) {
+        if (typeof url === 'string' && url.includes('/api/timedtext')) {
+            if (!url.includes('kind=asr') && !url.includes('tlang=')) {
+                url = url + (url.includes('?') ? '&' : '?') + 'kind=asr';
+            }
+            this._url = url;
+        } else {
+            this._url = url;
+        }
+        return origOpen.apply(this, [method, url]);
+    };
+
+    const origSend = XMLHttpRequest.prototype.send;
+    XMLHttpRequest.prototype.send = function() {
+        this.addEventListener('load', function() {
+            if (this._url && typeof this._url === 'string' && this._url.includes('/api/timedtext')) {
+                processInterceptedData(this._url, this.responseText, this._url.includes('tlang=vi'));
+            }
+        });
+        return origSend.apply(this, arguments);
+    };
+
+    const origFetch = window.fetch;
+    window.fetch = async function(...args) {
+        let url = args[0] instanceof Request ? args[0].url : args[0];
+        if (typeof url === 'string' && url.includes('/api/timedtext')) {
+            if (!url.includes('kind=asr') && !url.includes('tlang=')) {
+                url = url + (url.includes('?') ? '&' : '?') + 'kind=asr';
+                if (args[0] instanceof Request) {
+                    args[0] = new Request(url, args[0]);
+                } else {
+                    args[0] = url;
+                }
+            }
+        }
+        const response = await origFetch.apply(this, args);
+        try {
+            if (typeof url === 'string' && url.includes('/api/timedtext')) {
+                const clone = response.clone();
+                clone.text()
+                    .then(text => processInterceptedData(url, text, url.includes('tlang=vi')))
+                    .catch(() => {});
+            }
+        } catch(e) {}
+        return response;
+    };
+}

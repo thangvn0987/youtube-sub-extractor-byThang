@@ -1,0 +1,17 @@
+{
+  "name": "youtube-sub-extractor",
+  "version": "1.0.0",
+  "main": "index.js",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "description": "",
+  "devDependencies": {
+    "vite": "^8.1.5",
+    "vite-plugin-monkey": "^8.1.0"
+  }
+}
