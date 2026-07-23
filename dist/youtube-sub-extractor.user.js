@@ -542,8 +542,9 @@
 				video.style.removeProperty("width");
 				video.style.removeProperty("object-fit");
 			}
-			const videoRect = video ? video.getBoundingClientRect() : { height: 250 };
-			const topPosition = videoRect.height > 0 ? videoRect.height : 250;
+			const referenceElement = player || video;
+			const refRect = referenceElement ? referenceElement.getBoundingClientRect() : { bottom: 250 };
+			const topPosition = (refRect.bottom > 0 ? refRect.bottom : 250) + 15;
 			panel.style.cssText = `
             display: flex;
             position: absolute;
@@ -638,6 +639,17 @@
 			if (parseInt(block.dataset.index) === currentIndex) block.classList.add("ytse-active");
 			else block.classList.remove("ytse-active");
 		});
+		setTimeout(() => {
+			const activeBlock = textArea.querySelector(".ytse-active");
+			if (activeBlock) {
+				const blockRect = activeBlock.getBoundingClientRect();
+				const containerRect = textArea.getBoundingClientRect();
+				if (blockRect.top < containerRect.top + 20 || blockRect.bottom > containerRect.bottom - 20) activeBlock.scrollIntoView({
+					behavior: "smooth",
+					block: "center"
+				});
+			}
+		}, 100);
 	}
 	function injectUI() {
 		if (document.getElementById("custom-sub-panel")) return;

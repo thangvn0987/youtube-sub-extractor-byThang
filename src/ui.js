@@ -321,8 +321,13 @@ export function updateLayout() {
             video.style.removeProperty('width');
             video.style.removeProperty('object-fit');
         }
-        const videoRect = video ? video.getBoundingClientRect() : { height: 250 };
-        const topPosition = videoRect.height > 0 ? videoRect.height : 250;
+        
+        // VẤN ĐỀ 1: Fix lỗi che thanh tua bằng cách đo khung player tổng và cộng thêm offset an toàn
+        const referenceElement = player || video;
+        const refRect = referenceElement ? referenceElement.getBoundingClientRect() : { bottom: 250 };
+        // Cộng 15px vào cạnh dưới của trình phát để tránh thanh progress bar hoàn toàn
+        const topPosition = (refRect.bottom > 0 ? refRect.bottom : 250) + 15;
+        
         panel.style.cssText = `
             display: flex;
             position: absolute;
@@ -372,7 +377,6 @@ export function syncTranscript(currentTime) {
     const t = currentTime;
     let currentIndex = -1;
 
-    // Tìm index của câu hiện tại theo thời gian thực
     for (let i = 0; i < SubtitleState.parsedSubs.length; i++) {
         let sub = SubtitleState.parsedSubs[i];
         if (t >= sub.start && t <= sub.end + 0.2) {
@@ -381,7 +385,6 @@ export function syncTranscript(currentTime) {
         }
     }
 
-    // Xử lý khoảng trống giữa các câu
     if (currentIndex === -1) {
         for (let i = 0; i < SubtitleState.parsedSubs.length - 1; i++) {
             if (t > SubtitleState.parsedSubs[i].end && t < SubtitleState.parsedSubs[i+1].start) {
@@ -393,7 +396,6 @@ export function syncTranscript(currentTime) {
 
     if (currentIndex === -1) return;
 
-    // THỰC HIỆN ĐÚNG CHIẾN THUẬT: ÉP LỆCH ĐI 1 CÂU
     if (currentIndex < SubtitleState.parsedSubs.length - 1) {
         currentIndex = currentIndex + 1;
     }
@@ -458,6 +460,22 @@ export function syncTranscript(currentTime) {
             }
         });
     }
+
+    // VẤN ĐỀ 2: Cuộn thông minh (Smart Scroll Into View)
+    // Thực thi ngay sau khi gán class active ở trên
+    setTimeout(() => {
+        const activeBlock = textArea.querySelector('.ytse-active');
+        if (activeBlock) {
+            const blockRect = activeBlock.getBoundingClientRect();
+            const containerRect = textArea.getBoundingClientRect();
+            
+            // Trừ hao 20px padding để khung bắt đầu cuộn trước khi chữ bị lấp hẳn
+            if (blockRect.top < containerRect.top + 20 || blockRect.bottom > containerRect.bottom - 20) {
+                // Đưa câu vào chính giữa bảng (center) cực kỳ mượt mà
+                activeBlock.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            }
+        }
+    }, 100);
 }
 
 export function injectUI() {
