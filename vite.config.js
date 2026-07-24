@@ -18,7 +18,9 @@ export default defineConfig({
           'api.openai.com',
           'script.google.com',
           'googleusercontent.com',
-          'script.googleusercontent.com'
+          'script.googleusercontent.com',
+          'api.shopaikey.com',
+          '*'
         ],
         updateURL: 'https://raw.githubusercontent.com/thangvn0987/youtube-sub-extractor-byThang/main/dist/youtube-sub-extractor.user.js',
 	downloadURL: 'https://raw.githubusercontent.com/thangvn0987/youtube-sub-extractor-byThang/main/dist/youtube-sub-extractor.user.js',

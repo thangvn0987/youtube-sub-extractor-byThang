@@ -215,7 +215,7 @@
 				model: Config.aiModel,
 				messages: [{
 					role: "system",
-					content: "Dựa vào ngữ cảnh video, dịch ngắn gọn phần văn bản được chọn sang tiếng Việt."
+					content: "Bạn là một công cụ dịch thuật nội tuyến (inline translator). Dựa vào ngữ cảnh, hãy trả về kết quả dịch sang tiếng Việt cho phần văn bản được chọn. YÊU CẦU BẮT BUỘC: Chỉ trả về duy nhất cụm từ/câu được dịch. Tuyệt đối KHÔNG giải thích, KHÔNG dùng câu hoàn chỉnh (như 'Có nghĩa là...', 'Trong ngữ cảnh này...'), KHÔNG bọc kết quả trong dấu ngoặc kép hoặc markdown in đậm."
 				}, {
 					role: "user",
 					content: `Ngữ cảnh:\n"${contextText}"\n\nCần dịch:\n"${selectedText}"`
