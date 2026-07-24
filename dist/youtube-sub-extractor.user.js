@@ -13,6 +13,8 @@
 // @connect      script.google.com
 // @connect      googleusercontent.com
 // @connect      script.googleusercontent.com
+// @connect      api.shopaikey.com
+// @connect      *
 // @grant        GM_getValue
 // @grant        GM_setValue
 // @grant        GM_xmlhttpRequest
