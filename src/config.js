@@ -21,6 +21,10 @@ export const Config = {
     get aiModel() { return GM_getValue('cfgAiModel', 'gpt-3.5-turbo'); },
     set aiModel(val) { GM_setValue('cfgAiModel', val); },
 
+    // Cài đặt bù trừ thời gian (giúp câu tiếp theo sáng lên nhanh hơn)
+    get timeOffset() { return GM_getValue('cfgTimeOffset', 0.4); },
+    set timeOffset(val) { GM_setValue('cfgTimeOffset', val); },
+
     // Các thông số tĩnh (Hệ thống backend)
     MASTER_WEB_APP_URL: "https://script.google.com/macros/s/AKfycbzLGxMDjEk1YSk1_ZQrNNo5Z5OQfVONoC0i18bYm48-RxYjcGOiRR8i4rn3Jg6cm2O5/exec",
     OUTPUT_BACKEND_TOKEN: "victor-output-vocab-001",

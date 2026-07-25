@@ -128,16 +128,29 @@ function processInterceptedData(url, text, isVietsub) {
 }
 
 export function setupInterceptors() {
+    function rewriteUrlToAsr(url) {
+        if (typeof url !== 'string' || !url.includes('/api/timedtext')) return url;
+        if (url.includes('tlang=')) return url;
+        try {
+            const isAbsolute = url.startsWith('http');
+            const baseUrl = isAbsolute ? url : window.location.origin + url;
+            const urlObj = new URL(baseUrl);
+            
+            urlObj.searchParams.set('kind', 'asr');
+            urlObj.searchParams.set('lang', 'en');
+            urlObj.searchParams.delete('name');
+            urlObj.searchParams.delete('trackName');
+            
+            return isAbsolute ? urlObj.toString() : urlObj.pathname + urlObj.search;
+        } catch (e) {
+            return url;
+        }
+    }
+
     const origOpen = XMLHttpRequest.prototype.open;
     XMLHttpRequest.prototype.open = function(method, url) {
-        if (typeof url === 'string' && url.includes('/api/timedtext')) {
-            if (!url.includes('kind=asr') && !url.includes('tlang=')) {
-                url = url + (url.includes('?') ? '&' : '?') + 'kind=asr';
-            }
-            this._url = url;
-        } else {
-            this._url = url;
-        }
+        url = rewriteUrlToAsr(url);
+        this._url = url;
         return origOpen.apply(this, [method, url]);
     };
 
@@ -154,16 +167,14 @@ export function setupInterceptors() {
     const origFetch = window.fetch;
     window.fetch = async function(...args) {
         let url = args[0] instanceof Request ? args[0].url : args[0];
-        if (typeof url === 'string' && url.includes('/api/timedtext')) {
-            if (!url.includes('kind=asr') && !url.includes('tlang=')) {
-                url = url + (url.includes('?') ? '&' : '?') + 'kind=asr';
-                if (args[0] instanceof Request) {
-                    args[0] = new Request(url, args[0]);
-                } else {
-                    args[0] = url;
-                }
-            }
+        url = rewriteUrlToAsr(url);
+        
+        if (args[0] instanceof Request) {
+            args[0] = new Request(url, args[0]);
+        } else {
+            args[0] = url;
         }
+        
         const response = await origFetch.apply(this, args);
         try {
             if (typeof url === 'string' && url.includes('/api/timedtext')) {

@@ -374,7 +374,8 @@ export function syncTranscript(currentTime) {
         return;
     }
 
-    const t = currentTime;
+    // Áp dụng bù trừ thời gian để sáng câu nhanh hơn
+    const t = currentTime + Number(Config.timeOffset || 0);
     let currentIndex = -1;
 
     for (let i = 0; i < SubtitleState.parsedSubs.length; i++) {
@@ -547,6 +548,9 @@ export function injectUI() {
         <label style="font-size:13px; margin-top:10px;">Số câu ngữ cảnh hiển thị 0-10:</label>
         <input type="number" id="cfg-ctx" min="0" max="10" value="${Config.ctx}" style="width:100%; padding:8px; margin-top:5px; background:#333; color:white; border:1px solid #555; border-radius:4px;">
 
+        <label style="font-size:13px; margin-top:10px;">Độ bù trừ thời gian sáng chữ (giây):</label>
+        <input type="number" step="0.1" id="cfg-timeoffset" value="${Config.timeOffset}" style="width:100%; padding:8px; margin-top:5px; background:#333; color:white; border:1px solid #555; border-radius:4px;">
+
         <label style="font-size:13px; margin-top:10px; display:flex; align-items:center; cursor:pointer;">
             <input type="checkbox" id="cfg-autovi" ${Config.autoVi ? 'checked' : ''} style="margin-right:8px; width:18px; height:18px;">
             Tự động hiển thị Vietsub gốc của video
@@ -576,6 +580,7 @@ export function injectUI() {
 
     settingOverlay.querySelector('#btn-save-setting').addEventListener('click', () => {
         Config.ctx = parseInt(document.getElementById('cfg-ctx').value) || 3;
+        Config.timeOffset = parseFloat(document.getElementById('cfg-timeoffset').value) || 0;
         Config.autoVi = document.getElementById('cfg-autovi').checked;
         Config.overlap = document.getElementById('cfg-overlap').checked;
         Config.aiUrl = document.getElementById('cfg-ai-url').value.trim();

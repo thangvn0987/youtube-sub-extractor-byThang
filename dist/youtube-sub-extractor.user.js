@@ -120,12 +120,26 @@
 		}
 	}
 	function setupInterceptors() {
+		function rewriteUrlToAsr(url) {
+			if (typeof url !== "string" || !url.includes("/api/timedtext")) return url;
+			if (url.includes("tlang=")) return url;
+			try {
+				const isAbsolute = url.startsWith("http");
+				const baseUrl = isAbsolute ? url : window.location.origin + url;
+				const urlObj = new URL(baseUrl);
+				urlObj.searchParams.set("kind", "asr");
+				urlObj.searchParams.set("lang", "en");
+				urlObj.searchParams.delete("name");
+				urlObj.searchParams.delete("trackName");
+				return isAbsolute ? urlObj.toString() : urlObj.pathname + urlObj.search;
+			} catch (e) {
+				return url;
+			}
+		}
 		const origOpen = XMLHttpRequest.prototype.open;
 		XMLHttpRequest.prototype.open = function(method, url) {
-			if (typeof url === "string" && url.includes("/api/timedtext")) {
-				if (!url.includes("kind=asr") && !url.includes("tlang=")) url = url + (url.includes("?") ? "&" : "?") + "kind=asr";
-				this._url = url;
-			} else this._url = url;
+			url = rewriteUrlToAsr(url);
+			this._url = url;
 			return origOpen.apply(this, [method, url]);
 		};
 		const origSend = XMLHttpRequest.prototype.send;
@@ -138,13 +152,9 @@
 		const origFetch = window.fetch;
 		window.fetch = async function(...args) {
 			let url = args[0] instanceof Request ? args[0].url : args[0];
-			if (typeof url === "string" && url.includes("/api/timedtext")) {
-				if (!url.includes("kind=asr") && !url.includes("tlang=")) {
-					url = url + (url.includes("?") ? "&" : "?") + "kind=asr";
-					if (args[0] instanceof Request) args[0] = new Request(url, args[0]);
-					else args[0] = url;
-				}
-			}
+			url = rewriteUrlToAsr(url);
+			if (args[0] instanceof Request) args[0] = new Request(url, args[0]);
+			else args[0] = url;
 			const response = await origFetch.apply(this, args);
 			try {
 				if (typeof url === "string" && url.includes("/api/timedtext")) response.clone().text().then((text) => processInterceptedData(url, text, url.includes("tlang=vi"))).catch(() => {});
@@ -188,6 +198,12 @@
 		},
 		set aiModel(val) {
 			GM_setValue("cfgAiModel", val);
+		},
+		get timeOffset() {
+			return GM_getValue("cfgTimeOffset", .4);
+		},
+		set timeOffset(val) {
+			GM_setValue("cfgTimeOffset", val);
 		},
 		MASTER_WEB_APP_URL: "https://script.google.com/macros/s/AKfycbzLGxMDjEk1YSk1_ZQrNNo5Z5OQfVONoC0i18bYm48-RxYjcGOiRR8i4rn3Jg6cm2O5/exec",
 		OUTPUT_BACKEND_TOKEN: "victor-output-vocab-001",
@@ -586,7 +602,7 @@
 			if (textArea && !textArea.innerText.includes("Vui lòng bật")) textArea.innerHTML = "Vui lòng bật hiển thị phụ đề CC trên video để hệ thống bắt dữ liệu.";
 			return;
 		}
-		const t = currentTime;
+		const t = currentTime + Number(Config.timeOffset || 0);
 		let currentIndex = -1;
 		for (let i = 0; i < SubtitleState.parsedSubs.length; i++) {
 			let sub = SubtitleState.parsedSubs[i];
@@ -721,6 +737,9 @@
         <label style="font-size:13px; margin-top:10px;">Số câu ngữ cảnh hiển thị 0-10:</label>
         <input type="number" id="cfg-ctx" min="0" max="10" value="${Config.ctx}" style="width:100%; padding:8px; margin-top:5px; background:#333; color:white; border:1px solid #555; border-radius:4px;">
 
+        <label style="font-size:13px; margin-top:10px;">Độ bù trừ thời gian sáng chữ (giây):</label>
+        <input type="number" step="0.1" id="cfg-timeoffset" value="${Config.timeOffset}" style="width:100%; padding:8px; margin-top:5px; background:#333; color:white; border:1px solid #555; border-radius:4px;">
+
         <label style="font-size:13px; margin-top:10px; display:flex; align-items:center; cursor:pointer;">
             <input type="checkbox" id="cfg-autovi" ${Config.autoVi ? "checked" : ""} style="margin-right:8px; width:18px; height:18px;">
             Tự động hiển thị Vietsub gốc của video
@@ -748,6 +767,7 @@
 		});
 		settingOverlay.querySelector("#btn-save-setting").addEventListener("click", () => {
 			Config.ctx = parseInt(document.getElementById("cfg-ctx").value) || 3;
+			Config.timeOffset = parseFloat(document.getElementById("cfg-timeoffset").value) || 0;
 			Config.autoVi = document.getElementById("cfg-autovi").checked;
 			Config.overlap = document.getElementById("cfg-overlap").checked;
 			Config.aiUrl = document.getElementById("cfg-ai-url").value.trim();
