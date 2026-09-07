@@ -1,9 +1,9 @@
 // ==UserScript==
 // @name         YouTube Auto Subtitle Extractor V6.0
 // @namespace    http://tampermonkey.net/
-// @version      6.0.0
+// @version      6.1.0
 // @author
-// @description  Kiến trúc Modular, bắt chuẩn sub ASR, tự động đồng bộ Tampermonkey
+// @description  Tối ưu LazyColumn 60FPS không giật lag, thêm nút tua lại video
 // @license      ISC
 // @downloadURL  https://raw.githubusercontent.com/thangvn0987/youtube-sub-extractor-byThang/main/dist/youtube-sub-extractor.user.js
 // @updateURL    https://raw.githubusercontent.com/thangvn0987/youtube-sub-extractor-byThang/main/dist/youtube-sub-extractor.user.js
@@ -38,72 +38,65 @@
 		return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")},${String(ms).padStart(3, "0")}`;
 	}
 	function mergeSubs() {
-		if (SubtitleState.enSubs.length === 0) return;
-		let tempRaw = "";
-		SubtitleState.parsedSubs = SubtitleState.enSubs.map((en, i) => {
+		const enList = SubtitleState.enSubs;
+		const viList = SubtitleState.viSubs;
+		if (!enList || enList.length === 0) return;
+		let viIdx = 0;
+		const viLen = viList.length;
+		const parsed = new Array(enList.length);
+		const srtParts = [];
+		for (let i = 0; i < enList.length; i++) {
+			const en = enList[i];
 			let viText = "";
-			if (SubtitleState.viSubs.length > 0) {
-				let vi = SubtitleState.viSubs.find((v) => Math.abs(v.start - en.start) < .5);
-				if (!vi) vi = SubtitleState.viSubs[i];
-				if (vi) viText = vi.text;
+			if (viLen > 0) {
+				while (viIdx < viLen && viList[viIdx].end < en.start - .5) viIdx++;
+				let bestVi = null;
+				let minDiff = .5;
+				const searchLimit = Math.min(viLen, viIdx + 4);
+				for (let k = Math.max(0, viIdx - 1); k < searchLimit; k++) {
+					const diff = Math.abs(viList[k].start - en.start);
+					if (diff < minDiff) {
+						minDiff = diff;
+						bestVi = viList[k];
+					}
+				}
+				if (bestVi) viText = bestVi.text;
+				else if (i < viLen && Math.abs(viList[i].start - en.start) < 1) viText = viList[i].text;
 			}
-			tempRaw += i + 1 + "\n";
-			tempRaw += formatTime(en.start) + " --> " + formatTime(en.end) + "\n";
-			tempRaw += en.text + "\n\n";
-			return {
+			parsed[i] = {
 				start: en.start,
 				end: en.end,
 				text: en.text,
 				text_vi: viText
 			};
-		});
-		SubtitleState.rawSrtData = tempRaw;
+			srtParts.push(`${i + 1}\n${formatTime(en.start)} --> ${formatTime(en.end)}\n${en.text}\n\n`);
+		}
+		SubtitleState.parsedSubs = parsed;
+		SubtitleState.rawSrtData = srtParts.join("");
 		let vid = new URLSearchParams(window.location.search).get("v");
 		if (!vid && window.location.pathname.includes("/shorts/")) vid = window.location.pathname.split("/shorts/")[1];
 		SubtitleState.currentVideoId = vid || "";
 	}
 	function processInterceptedData(url, text, isVietsub) {
 		if (!text) return;
-		try {
-			const jsonObj = JSON.parse(text);
-			if (jsonObj.events) {
-				let tempSubs = [];
-				for (let event of jsonObj.events) {
-					if (!event.segs) continue;
-					let startMs = event.tStartMs || 0;
-					let durationMs = event.dDurationMs || 0;
-					let sentence = event.segs.map((seg) => seg.utf8).join("").replace(/\n/g, " ").trim();
-					if (!sentence) continue;
-					let startSec = startMs / 1e3;
-					let endSec = (startMs + durationMs) / 1e3;
-					if (!tempSubs.some((s) => Math.abs(s.start - startSec) < .1 && s.text === sentence)) tempSubs.push({
-						start: startSec,
-						end: endSec,
-						text: sentence
-					});
-				}
-				if (!isVietsub) {
-					SubtitleState.enSubs = tempSubs;
-					if (!url.includes("tlang=")) {
-						let viUrl = url + (url.includes("?") ? "&" : "?") + "tlang=vi";
-						fetch(viUrl).then((r) => r.text()).then((t) => processInterceptedData(viUrl, t, true)).catch(() => {});
-					}
-				} else SubtitleState.viSubs = tempSubs;
-				mergeSubs();
-			}
-		} catch (e) {
+		setTimeout(() => {
 			try {
-				const textNodes = new DOMParser().parseFromString(text, "text/xml").getElementsByTagName("text");
-				if (textNodes.length > 0) {
+				const jsonObj = JSON.parse(text);
+				if (jsonObj.events) {
 					let tempSubs = [];
-					for (let i = 0; i < textNodes.length; i++) {
-						let node = textNodes[i];
-						let start = parseFloat(node.getAttribute("start"));
-						let dur = parseFloat(node.getAttribute("dur"));
-						let sentence = node.textContent.replace(/&amp;/g, "&").replace(/&quot;/g, "\"").replace(/&#39;/g, "'").replace(/&lt;/g, "<").replace(/&gt;/g, ">").trim();
-						if (!tempSubs.some((s) => Math.abs(s.start - start) < .1 && s.text === sentence)) tempSubs.push({
-							start,
-							end: start + dur,
+					for (let event of jsonObj.events) {
+						if (!event.segs) continue;
+						let startMs = event.tStartMs || 0;
+						let durationMs = event.dDurationMs || 0;
+						let sentence = event.segs.map((seg) => seg.utf8).join("").replace(/\n/g, " ").trim();
+						if (!sentence) continue;
+						let startSec = startMs / 1e3;
+						let endSec = (startMs + durationMs) / 1e3;
+						const last = tempSubs[tempSubs.length - 1];
+						if (last && Math.abs(last.start - startSec) < .1 && last.text === sentence) continue;
+						tempSubs.push({
+							start: startSec,
+							end: endSec,
 							text: sentence
 						});
 					}
@@ -115,9 +108,38 @@
 						}
 					} else SubtitleState.viSubs = tempSubs;
 					mergeSubs();
+					return;
 				}
-			} catch (ex) {}
-		}
+			} catch (e) {
+				try {
+					const textNodes = new DOMParser().parseFromString(text, "text/xml").getElementsByTagName("text");
+					if (textNodes.length > 0) {
+						let tempSubs = [];
+						for (let i = 0; i < textNodes.length; i++) {
+							let node = textNodes[i];
+							let start = parseFloat(node.getAttribute("start"));
+							let dur = parseFloat(node.getAttribute("dur"));
+							let sentence = node.textContent.replace(/&amp;/g, "&").replace(/&quot;/g, "\"").replace(/&#39;/g, "'").replace(/&lt;/g, "<").replace(/&gt;/g, ">").trim();
+							const last = tempSubs[tempSubs.length - 1];
+							if (last && Math.abs(last.start - start) < .1 && last.text === sentence) continue;
+							tempSubs.push({
+								start,
+								end: start + dur,
+								text: sentence
+							});
+						}
+						if (!isVietsub) {
+							SubtitleState.enSubs = tempSubs;
+							if (!url.includes("tlang=")) {
+								let viUrl = url + (url.includes("?") ? "&" : "?") + "tlang=vi";
+								fetch(viUrl).then((r) => r.text()).then((t) => processInterceptedData(viUrl, t, true)).catch(() => {});
+							}
+						} else SubtitleState.viSubs = tempSubs;
+						mergeSubs();
+					}
+				} catch (ex) {}
+			}
+		}, 0);
 	}
 	function setupInterceptors() {
 		function rewriteUrlToAsr(url) {
@@ -205,6 +227,12 @@
 		set timeOffset(val) {
 			GM_setValue("cfgTimeOffset", val);
 		},
+		get rewindSec() {
+			return GM_getValue("cfgRewindSec", 5);
+		},
+		set rewindSec(val) {
+			GM_setValue("cfgRewindSec", val);
+		},
 		MASTER_WEB_APP_URL: "https://script.google.com/macros/s/AKfycbzLGxMDjEk1YSk1_ZQrNNo5Z5OQfVONoC0i18bYm48-RxYjcGOiRR8i4rn3Jg6cm2O5/exec",
 		OUTPUT_BACKEND_TOKEN: "victor-output-vocab-001",
 		NORMAL_BACKEND_TOKEN: "victor-normal-vocab-001"
@@ -290,7 +318,13 @@
 		lastContextText: "",
 		isMenuPinned: false,
 		lastRenderedIndex: -1,
-		lastStartIndex: -1
+		lastStartIndex: -1,
+		lazyWindow: {
+			start: -1,
+			end: -1
+		},
+		isUserScrolling: false,
+		userScrollTimer: null
 	};
 	var ttPolicy;
 	if (window.trustedTypes && window.trustedTypes.createPolicy) try {
@@ -403,6 +437,10 @@
         `,
 			playerPlay: `
             <path d="M7 4v16l13 -8z" />
+        `,
+			rewind: `
+            <path d="M21 5v14l-8 -7z" />
+            <path d="M10 5v14l-8 -7z" />
         `,
 			settings: `
             <path d="M10.325 4.317c.426 -1.756 2.924 -1.756 3.35 0a1.724 1.724 0 0 0 2.573 1.066c1.543 -.94 3.31 .826 2.37 2.37a1.724 1.724 0 0 0 1.065 2.572c1.756 .426 1.756 2.924 0 3.35a1.724 1.724 0 0 0 -1.066 2.573c.94 1.543 -.826 3.31 -2.37 2.37a1.724 1.724 0 0 0 -2.572 1.065c-.426 1.756 -2.924 1.756 -3.35 0a1.724 1.724 0 0 0 -2.573 -1.066c-1.543 .94 -3.31 -.826 -2.37 -2.37a1.724 1.724 0 0 0 -1.065 -2.572c-1.756 -.426 -1.756 -2.924 0 -3.35a1.724 1.724 0 0 0 1.066 -2.573c-.94 -1.543 .826 -3.31 2.37 -2.37c1 .608 2.296 .07 2.572 -1.065z" />
@@ -596,78 +634,90 @@
 			video.style.removeProperty("object-fit");
 		}
 	}
+	function findSubIndex(subs, t) {
+		if (!subs || subs.length === 0) return -1;
+		let low = 0;
+		let high = subs.length - 1;
+		let best = -1;
+		while (low <= high) {
+			const mid = low + high >> 1;
+			const sub = subs[mid];
+			if (t >= sub.start && t <= sub.end + .2) return mid;
+			if (sub.start <= t) {
+				best = mid;
+				low = mid + 1;
+			} else high = mid - 1;
+		}
+		return best;
+	}
+	function buildSubBlockHtml(sub, index, isActive) {
+		let html = `<div class="sub-block ${isActive ? "ytse-active" : ""}" data-index="${index}" data-start="${sub.start}" data-end="${sub.end}" data-text="${escapeAttr(sub.text)}">`;
+		html += escapeHtml(sub.text);
+		if (Config.autoVi && sub.text_vi) html += `<br><span style="color: #66aa66; font-size: 15px; font-weight: normal;">${escapeHtml(sub.text_vi)}</span>`;
+		html += `</div>`;
+		return html;
+	}
+	function smartScrollIntoView(container, targetEl) {
+		if (!container || !targetEl || UIState.isUserScrolling) return;
+		requestAnimationFrame(() => {
+			const containerRect = container.getBoundingClientRect();
+			const targetRect = targetEl.getBoundingClientRect();
+			const offsetTop = targetRect.top - containerRect.top;
+			const offsetBottom = targetRect.bottom - containerRect.bottom;
+			if (offsetTop < 30 || offsetBottom > -30) {
+				const idealTop = targetEl.offsetTop - container.clientHeight / 2 + targetEl.clientHeight / 2;
+				container.scrollTo({
+					top: Math.max(0, idealTop),
+					behavior: "smooth"
+				});
+			}
+		});
+	}
 	function syncTranscript(currentTime) {
-		if (!SubtitleState.parsedSubs || SubtitleState.parsedSubs.length === 0) {
+		const subs = SubtitleState.parsedSubs;
+		if (!subs || subs.length === 0) {
 			const textArea = document.getElementById("custom-sub-text");
 			if (textArea && !textArea.innerText.includes("Vui lòng bật")) textArea.innerHTML = "Vui lòng bật hiển thị phụ đề CC trên video để hệ thống bắt dữ liệu.";
 			return;
 		}
-		const t = currentTime + Number(Config.timeOffset || 0);
-		let currentIndex = -1;
-		for (let i = 0; i < SubtitleState.parsedSubs.length; i++) {
-			let sub = SubtitleState.parsedSubs[i];
-			if (t >= sub.start && t <= sub.end + .2) {
-				currentIndex = i;
-				break;
-			}
-		}
-		if (currentIndex === -1) {
-			for (let i = 0; i < SubtitleState.parsedSubs.length - 1; i++) if (t > SubtitleState.parsedSubs[i].end && t < SubtitleState.parsedSubs[i + 1].start) {
-				currentIndex = i;
-				break;
-			}
-		}
+		const currentIndex = findSubIndex(subs, currentTime + Number(Config.timeOffset || 0));
 		if (currentIndex === -1) return;
-		if (currentIndex < SubtitleState.parsedSubs.length - 1) currentIndex = currentIndex + 1;
 		if (currentIndex === UIState.lastRenderedIndex) return;
 		UIState.lastRenderedIndex = currentIndex;
-		let blockSize = Config.ctx * 2 + 1;
-		let startIndex, endIndex;
-		if (Config.overlap && Config.ctx > 0) {
-			let stride = blockSize - 1;
-			startIndex = Math.floor(currentIndex / stride) * stride;
-			endIndex = Math.min(startIndex + blockSize - 1, SubtitleState.parsedSubs.length - 1);
-		} else {
-			startIndex = Math.floor(currentIndex / blockSize) * blockSize;
-			endIndex = Math.min(startIndex + blockSize - 1, SubtitleState.parsedSubs.length - 1);
-		}
 		const textArea = document.getElementById("custom-sub-text");
 		if (!textArea) return;
-		if (startIndex !== UIState.lastStartIndex) {
-			UIState.lastStartIndex = startIndex;
+		const PREV_BUFFER = 3;
+		const NEXT_BUFFER = Math.max(8, Number(Config.ctx || 3) * 3);
+		const win = UIState.lazyWindow;
+		if (win.start !== -1 && currentIndex >= win.start && currentIndex <= win.end - 2) {
+			const prevActive = textArea.querySelector(".ytse-active");
+			if (prevActive) prevActive.classList.remove("ytse-active");
+			const currentBlock = textArea.querySelector(`[data-index="${currentIndex}"]`);
+			if (currentBlock) {
+				currentBlock.classList.add("ytse-active");
+				smartScrollIntoView(textArea, currentBlock);
+				UIState.lastContextText = currentBlock.dataset.text || "";
+			}
+		} else {
+			const newStart = Math.max(0, currentIndex - PREV_BUFFER);
+			const newEnd = Math.min(subs.length - 1, currentIndex + NEXT_BUFFER);
 			let html = "";
 			let contextText = "";
-			for (let i = startIndex; i <= endIndex; i++) {
-				let sub = SubtitleState.parsedSubs[i];
-				let isActive = i === currentIndex ? "ytse-active" : "";
-				contextText += sub.text + " ";
-				html += `<div class="sub-block ${isActive}" data-index="${i}" data-start="${sub.start}" data-end="${sub.end}" data-text="${escapeAttr(sub.text)}">`;
-				html += escapeHtml(sub.text);
-				if (Config.autoVi && sub.text_vi) html += `<br><span style="color: #66aa66; font-size: 15px; font-weight: normal;">${escapeHtml(sub.text_vi)}</span>`;
-				html += `</div>`;
+			for (let i = newStart; i <= newEnd; i++) {
+				const sub = subs[i];
+				const isActive = i === currentIndex;
+				if (isActive) contextText = sub.text;
+				html += buildSubBlockHtml(sub, i, isActive);
 			}
-			UIState.lastContextText = contextText.trim();
-			textArea.style.opacity = "0";
+			UIState.lazyWindow = {
+				start: newStart,
+				end: newEnd
+			};
+			UIState.lastContextText = contextText;
 			textArea.innerHTML = safeHTML(html);
-			setTimeout(() => {
-				textArea.style.transition = "opacity 0.25s ease";
-				textArea.style.opacity = "1";
-			}, 50);
-		} else textArea.querySelectorAll(".sub-block").forEach((block) => {
-			if (parseInt(block.dataset.index) === currentIndex) block.classList.add("ytse-active");
-			else block.classList.remove("ytse-active");
-		});
-		setTimeout(() => {
 			const activeBlock = textArea.querySelector(".ytse-active");
-			if (activeBlock) {
-				const blockRect = activeBlock.getBoundingClientRect();
-				const containerRect = textArea.getBoundingClientRect();
-				if (blockRect.top < containerRect.top + 20 || blockRect.bottom > containerRect.bottom - 20) activeBlock.scrollIntoView({
-					behavior: "smooth",
-					block: "center"
-				});
-			}
-		}, 100);
+			if (activeBlock) smartScrollIntoView(textArea, activeBlock);
+		}
 	}
 	function injectUI() {
 		if (document.getElementById("custom-sub-panel")) return;
@@ -675,6 +725,7 @@
 		const panel = document.createElement("div");
 		panel.id = "custom-sub-panel";
 		panel.style.display = "none";
+		let btnRewind;
 		const stopProp = (e) => e.stopPropagation();
 		[
 			"touchstart",
@@ -740,6 +791,9 @@
         <label style="font-size:13px; margin-top:10px;">Độ bù trừ thời gian sáng chữ (giây):</label>
         <input type="number" step="0.1" id="cfg-timeoffset" value="${Config.timeOffset}" style="width:100%; padding:8px; margin-top:5px; background:#333; color:white; border:1px solid #555; border-radius:4px;">
 
+        <label style="font-size:13px; margin-top:10px;">Số giây tua lại (1s - 10s):</label>
+        <input type="number" id="cfg-rewind-sec" min="1" max="10" value="${Config.rewindSec}" style="width:100%; padding:8px; margin-top:5px; background:#333; color:white; border:1px solid #555; border-radius:4px;">
+
         <label style="font-size:13px; margin-top:10px; display:flex; align-items:center; cursor:pointer;">
             <input type="checkbox" id="cfg-autovi" ${Config.autoVi ? "checked" : ""} style="margin-right:8px; width:18px; height:18px;">
             Tự động hiển thị Vietsub gốc của video
@@ -768,11 +822,16 @@
 		settingOverlay.querySelector("#btn-save-setting").addEventListener("click", () => {
 			Config.ctx = parseInt(document.getElementById("cfg-ctx").value) || 3;
 			Config.timeOffset = parseFloat(document.getElementById("cfg-timeoffset").value) || 0;
+			Config.rewindSec = Math.min(10, Math.max(1, parseInt(document.getElementById("cfg-rewind-sec").value) || 5));
 			Config.autoVi = document.getElementById("cfg-autovi").checked;
 			Config.overlap = document.getElementById("cfg-overlap").checked;
 			Config.aiUrl = document.getElementById("cfg-ai-url").value.trim();
 			Config.aiKey = document.getElementById("cfg-ai-key").value.trim();
 			Config.aiModel = document.getElementById("cfg-ai-model").value.trim();
+			if (btnRewind) {
+				btnRewind.title = `Tua lại ${Config.rewindSec}s`;
+				btnRewind.setAttribute("aria-label", `Tua lại ${Config.rewindSec}s`);
+			}
 			settingOverlay.style.display = "none";
 			const video = document.querySelector("video");
 			if (video) {
@@ -793,6 +852,41 @@
         color: #fff;
         padding-bottom: 10px;
     `;
+		textArea.addEventListener("scroll", () => {
+			UIState.isUserScrolling = true;
+			clearTimeout(UIState.userScrollTimer);
+			UIState.userScrollTimer = setTimeout(() => {
+				UIState.isUserScrolling = false;
+			}, 1500);
+			const subs = SubtitleState.parsedSubs;
+			if (!subs || subs.length === 0) return;
+			const win = UIState.lazyWindow;
+			if (win.start === -1) return;
+			if (textArea.scrollTop <= 40 && win.start > 0) {
+				const newStart = Math.max(0, win.start - 5);
+				if (newStart < win.start) {
+					let prependHtml = "";
+					for (let i = newStart; i < win.start; i++) prependHtml += buildSubBlockHtml(subs[i], i, false);
+					const oldScrollHeight = textArea.scrollHeight;
+					const tempDiv = document.createElement("div");
+					tempDiv.innerHTML = safeHTML(prependHtml);
+					while (tempDiv.lastChild) textArea.insertBefore(tempDiv.lastChild, textArea.firstChild);
+					textArea.scrollTop += textArea.scrollHeight - oldScrollHeight;
+					win.start = newStart;
+				}
+			}
+			if (textArea.scrollTop + textArea.clientHeight >= textArea.scrollHeight - 40 && win.end < subs.length - 1) {
+				const newEnd = Math.min(subs.length - 1, win.end + 8);
+				if (newEnd > win.end) {
+					let appendHtml = "";
+					for (let i = win.end + 1; i <= newEnd; i++) appendHtml += buildSubBlockHtml(subs[i], i, false);
+					const tempDiv = document.createElement("div");
+					tempDiv.innerHTML = safeHTML(appendHtml);
+					while (tempDiv.firstChild) textArea.appendChild(tempDiv.firstChild);
+					win.end = newEnd;
+				}
+			}
+		}, { passive: true });
 		panel.appendChild(textArea);
 		const bottomBar = document.createElement("div");
 		bottomBar.style.cssText = `
@@ -807,13 +901,28 @@
 		const btnAi = createToolButton("sparkles", "Dịch bằng AI");
 		const btnAdd = createToolButton("bookmarkPlus", "Lưu từ vựng thường");
 		const btnOutput = createToolButton("microphonePlus", "Thêm vào hệ thống học output");
+		btnRewind = createToolButton("rewind", `Tua lại ${Config.rewindSec}s`);
 		const btnPlay = createToolButton("playerPlay", "Phát tiếp video");
 		bottomBar.appendChild(btnGoogle);
 		bottomBar.appendChild(btnAi);
 		bottomBar.appendChild(btnAdd);
 		bottomBar.appendChild(btnOutput);
+		bottomBar.appendChild(btnRewind);
 		bottomBar.appendChild(btnPlay);
 		panel.appendChild(bottomBar);
+		btnRewind.addEventListener("click", () => {
+			const video = document.querySelector("video");
+			if (video) {
+				const sec = Number(Config.rewindSec || 5);
+				video.currentTime = Math.max(0, video.currentTime - sec);
+				UIState.lastRenderedIndex = -1;
+				syncTranscript(video.currentTime);
+				btnRewind.style.transform = "scale(0.88)";
+				setTimeout(() => {
+					btnRewind.style.transform = "";
+				}, 120);
+			}
+		});
 		btnPin.addEventListener("click", () => {
 			UIState.isMenuPinned = !UIState.isMenuPinned;
 			if (UIState.isMenuPinned) {
@@ -1004,6 +1113,10 @@
 				if (document.getElementById("custom-sub-text")) {
 					UIState.lastRenderedIndex = -1;
 					UIState.lastStartIndex = -1;
+					UIState.lazyWindow = {
+						start: -1,
+						end: -1
+					};
 					syncTranscript(video.currentTime);
 				}
 				updateLayout();

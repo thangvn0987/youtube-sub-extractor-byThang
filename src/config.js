@@ -25,6 +25,10 @@ export const Config = {
     get timeOffset() { return GM_getValue('cfgTimeOffset', 0.4); },
     set timeOffset(val) { GM_setValue('cfgTimeOffset', val); },
 
+    // Cài đặt số giây tua lại (1s - 10s, mặc định 5s)
+    get rewindSec() { return GM_getValue('cfgRewindSec', 5); },
+    set rewindSec(val) { GM_setValue('cfgRewindSec', val); },
+
     // Các thông số tĩnh (Hệ thống backend)
     MASTER_WEB_APP_URL: "https://script.google.com/macros/s/AKfycbzLGxMDjEk1YSk1_ZQrNNo5Z5OQfVONoC0i18bYm48-RxYjcGOiRR8i4rn3Jg6cm2O5/exec",
     OUTPUT_BACKEND_TOKEN: "victor-output-vocab-001",

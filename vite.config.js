@@ -8,8 +8,8 @@ export default defineConfig({
       userscript: {
         name: 'YouTube Auto Subtitle Extractor V6.0',
         namespace: 'http://tampermonkey.net/',
-        version: '6.0.0',
-        description: 'Kiến trúc Modular, bắt chuẩn sub ASR, tự động đồng bộ Tampermonkey',
+        version: '6.1.0',
+        description: 'Tối ưu LazyColumn 60FPS không giật lag, thêm nút tua lại video',
         match: ['*://*.youtube.com/*'],
         'run-at': 'document-start',
         grant: ['GM_xmlhttpRequest', 'GM_setValue', 'GM_getValue'],

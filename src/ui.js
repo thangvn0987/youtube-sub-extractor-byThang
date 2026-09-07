@@ -7,7 +7,10 @@ export const UIState = {
     lastContextText: "",
     isMenuPinned: false,
     lastRenderedIndex: -1,
-    lastStartIndex: -1
+    lastStartIndex: -1,
+    lazyWindow: { start: -1, end: -1 },
+    isUserScrolling: false,
+    userScrollTimer: null
 };
 
 let ttPolicy;
@@ -135,6 +138,10 @@ function iconSvg(name) {
         `,
         playerPlay: `
             <path d="M7 4v16l13 -8z" />
+        `,
+        rewind: `
+            <path d="M21 5v14l-8 -7z" />
+            <path d="M10 5v14l-8 -7z" />
         `,
         settings: `
             <path d="M10.325 4.317c.426 -1.756 2.924 -1.756 3.35 0a1.724 1.724 0 0 0 2.573 1.066c1.543 -.94 3.31 .826 2.37 2.37a1.724 1.724 0 0 0 1.065 2.572c1.756 .426 1.756 2.924 0 3.35a1.724 1.724 0 0 0 -1.066 2.573c.94 1.543 -.826 3.31 -2.37 2.37a1.724 1.724 0 0 0 -2.572 1.065c-.426 1.756 -2.924 1.756 -3.35 0a1.724 1.724 0 0 0 -2.573 -1.066c-1.543 .94 -3.31 -.826 -2.37 -2.37a1.724 1.724 0 0 0 -1.065 -2.572c-1.756 -.426 -1.756 -2.924 0 -3.35a1.724 1.724 0 0 0 1.066 -2.573c-.94 -1.543 .826 -3.31 2.37 -2.37c1 .608 2.296 .07 2.572 -1.065z" />
@@ -365,8 +372,64 @@ export function resetLayout() {
     }
 }
 
+function findSubIndex(subs, t) {
+    if (!subs || subs.length === 0) return -1;
+    let low = 0;
+    let high = subs.length - 1;
+    let best = -1;
+
+    while (low <= high) {
+        const mid = (low + high) >> 1;
+        const sub = subs[mid];
+        if (t >= sub.start && t <= sub.end + 0.2) {
+            return mid;
+        }
+        if (sub.start <= t) {
+            best = mid;
+            low = mid + 1;
+        } else {
+            high = mid - 1;
+        }
+    }
+    return best;
+}
+
+export function buildSubBlockHtml(sub, index, isActive) {
+    const activeClass = isActive ? "ytse-active" : "";
+    let html = `<div class="sub-block ${activeClass}" data-index="${index}" data-start="${sub.start}" data-end="${sub.end}" data-text="${escapeAttr(sub.text)}">`;
+    html += escapeHtml(sub.text);
+
+    if (Config.autoVi && sub.text_vi) {
+        html += `<br><span style="color: #66aa66; font-size: 15px; font-weight: normal;">${escapeHtml(sub.text_vi)}</span>`;
+    }
+    html += `</div>`;
+    return html;
+}
+
+function smartScrollIntoView(container, targetEl) {
+    if (!container || !targetEl || UIState.isUserScrolling) return;
+
+    requestAnimationFrame(() => {
+        const containerRect = container.getBoundingClientRect();
+        const targetRect = targetEl.getBoundingClientRect();
+
+        const offsetTop = targetRect.top - containerRect.top;
+        const offsetBottom = targetRect.bottom - containerRect.bottom;
+
+        // Chỉ cuộn khi phần tử active lệch ra khỏi vùng hiển thị thoải mái (đệm 30px)
+        if (offsetTop < 30 || offsetBottom > -30) {
+            const idealTop = targetEl.offsetTop - (container.clientHeight / 2) + (targetEl.clientHeight / 2);
+            container.scrollTo({
+                top: Math.max(0, idealTop),
+                behavior: 'smooth'
+            });
+        }
+    });
+}
+
 export function syncTranscript(currentTime) {
-    if (!SubtitleState.parsedSubs || SubtitleState.parsedSubs.length === 0) {
+    const subs = SubtitleState.parsedSubs;
+    if (!subs || subs.length === 0) {
         const textArea = document.getElementById('custom-sub-text');
         if (textArea && !textArea.innerText.includes("Vui lòng bật")) {
             textArea.innerHTML = "Vui lòng bật hiển thị phụ đề CC trên video để hệ thống bắt dữ liệu.";
@@ -374,109 +437,62 @@ export function syncTranscript(currentTime) {
         return;
     }
 
-    // Áp dụng bù trừ thời gian để sáng câu nhanh hơn
+    // Áp dụng bù trừ thời gian để nhận diện câu nhanh chóng
     const t = currentTime + Number(Config.timeOffset || 0);
-    let currentIndex = -1;
-
-    for (let i = 0; i < SubtitleState.parsedSubs.length; i++) {
-        let sub = SubtitleState.parsedSubs[i];
-        if (t >= sub.start && t <= sub.end + 0.2) {
-            currentIndex = i;
-            break;
-        }
-    }
-
-    if (currentIndex === -1) {
-        for (let i = 0; i < SubtitleState.parsedSubs.length - 1; i++) {
-            if (t > SubtitleState.parsedSubs[i].end && t < SubtitleState.parsedSubs[i+1].start) {
-                currentIndex = i;
-                break;
-            }
-        }
-    }
+    const currentIndex = findSubIndex(subs, t);
 
     if (currentIndex === -1) return;
-
-    if (currentIndex < SubtitleState.parsedSubs.length - 1) {
-        currentIndex = currentIndex + 1;
-    }
-
     if (currentIndex === UIState.lastRenderedIndex) return;
     UIState.lastRenderedIndex = currentIndex;
-
-    let blockSize = Config.ctx * 2 + 1;
-    let startIndex, endIndex;
-
-    if (Config.overlap && Config.ctx > 0) {
-        let stride = blockSize - 1;
-        let currentBlockIndex = Math.floor(currentIndex / stride);
-        startIndex = currentBlockIndex * stride;
-        endIndex = Math.min(startIndex + blockSize - 1, SubtitleState.parsedSubs.length - 1);
-    } else {
-        let currentBlockIndex = Math.floor(currentIndex / blockSize);
-        startIndex = currentBlockIndex * blockSize;
-        endIndex = Math.min(startIndex + blockSize - 1, SubtitleState.parsedSubs.length - 1);
-    }
 
     const textArea = document.getElementById('custom-sub-text');
     if (!textArea) return;
 
-    if (startIndex !== UIState.lastStartIndex) {
-        UIState.lastStartIndex = startIndex;
-        
+    // Cấu hình LazyColumn: Đệm quá khứ (3 câu) và Đệm tương lai (8-12 câu)
+    const PREV_BUFFER = 3;
+    const NEXT_BUFFER = Math.max(8, Number(Config.ctx || 3) * 3);
+
+    const win = UIState.lazyWindow;
+    // Kiểm tra xem câu hiện tại có nằm an toàn trong cửa sổ LazyColumn đang hiển thị không
+    const inWindow = (win.start !== -1 && currentIndex >= win.start && currentIndex <= win.end - 2);
+
+    if (inWindow) {
+        // Tối ưu đỉnh cao: Không xóa/vẽ lại DOM! Chỉ đổi class active tức thì trong 0.01ms
+        const prevActive = textArea.querySelector('.ytse-active');
+        if (prevActive) {
+            prevActive.classList.remove('ytse-active');
+        }
+        const currentBlock = textArea.querySelector(`[data-index="${currentIndex}"]`);
+        if (currentBlock) {
+            currentBlock.classList.add('ytse-active');
+            smartScrollIntoView(textArea, currentBlock);
+            UIState.lastContextText = currentBlock.dataset.text || '';
+        }
+    } else {
+        // Trượt cửa sổ (Slide Window): Chỉ render một lát cắt nhỏ (~12 câu)
+        const newStart = Math.max(0, currentIndex - PREV_BUFFER);
+        const newEnd = Math.min(subs.length - 1, currentIndex + NEXT_BUFFER);
+
         let html = "";
         let contextText = "";
-        for (let i = startIndex; i <= endIndex; i++) {
-            let sub = SubtitleState.parsedSubs[i];
-            let isActive = (i === currentIndex) ? "ytse-active" : "";
-            contextText += sub.text + " ";
-
-            html += `<div class="sub-block ${isActive}" data-index="${i}" data-start="${sub.start}" data-end="${sub.end}" data-text="${escapeAttr(sub.text)}">`;
-            html += escapeHtml(sub.text);
-
-            if (Config.autoVi && sub.text_vi) {
-                html += `<br><span style="color: #66aa66; font-size: 15px; font-weight: normal;">${escapeHtml(sub.text_vi)}</span>`;
-            }
-            html += `</div>`;
+        for (let i = newStart; i <= newEnd; i++) {
+            const sub = subs[i];
+            const isActive = (i === currentIndex);
+            if (isActive) contextText = sub.text;
+            html += buildSubBlockHtml(sub, i, isActive);
         }
 
-        UIState.lastContextText = contextText.trim();
-        
-        textArea.style.opacity = '0';
+        UIState.lazyWindow = { start: newStart, end: newEnd };
+        UIState.lastContextText = contextText;
+
+        // Render trực tiếp vào container, không nhấp nháy, không tụt khung hình
         textArea.innerHTML = safeHTML(html);
-        
-        setTimeout(() => {
-            textArea.style.transition = 'opacity 0.25s ease';
-            textArea.style.opacity = '1';
-        }, 50);
 
-    } else {
-        const allBlocks = textArea.querySelectorAll('.sub-block');
-        allBlocks.forEach(block => {
-            const idx = parseInt(block.dataset.index);
-            if (idx === currentIndex) {
-                block.classList.add('ytse-active');
-            } else {
-                block.classList.remove('ytse-active');
-            }
-        });
-    }
-
-    // VẤN ĐỀ 2: Cuộn thông minh (Smart Scroll Into View)
-    // Thực thi ngay sau khi gán class active ở trên
-    setTimeout(() => {
         const activeBlock = textArea.querySelector('.ytse-active');
         if (activeBlock) {
-            const blockRect = activeBlock.getBoundingClientRect();
-            const containerRect = textArea.getBoundingClientRect();
-            
-            // Trừ hao 20px padding để khung bắt đầu cuộn trước khi chữ bị lấp hẳn
-            if (blockRect.top < containerRect.top + 20 || blockRect.bottom > containerRect.bottom - 20) {
-                // Đưa câu vào chính giữa bảng (center) cực kỳ mượt mà
-                activeBlock.scrollIntoView({ behavior: 'smooth', block: 'center' });
-            }
+            smartScrollIntoView(textArea, activeBlock);
         }
-    }, 100);
+    }
 }
 
 export function injectUI() {
@@ -487,6 +503,8 @@ export function injectUI() {
     const panel = document.createElement('div');
     panel.id = 'custom-sub-panel';
     panel.style.display = 'none';
+
+    let btnRewind;
 
     const stopProp = (e) => e.stopPropagation();
     ['touchstart', 'touchmove', 'touchend', 'mousedown', 'mousemove', 'mouseup', 'click'].forEach(evt => {
@@ -551,6 +569,9 @@ export function injectUI() {
         <label style="font-size:13px; margin-top:10px;">Độ bù trừ thời gian sáng chữ (giây):</label>
         <input type="number" step="0.1" id="cfg-timeoffset" value="${Config.timeOffset}" style="width:100%; padding:8px; margin-top:5px; background:#333; color:white; border:1px solid #555; border-radius:4px;">
 
+        <label style="font-size:13px; margin-top:10px;">Số giây tua lại (1s - 10s):</label>
+        <input type="number" id="cfg-rewind-sec" min="1" max="10" value="${Config.rewindSec}" style="width:100%; padding:8px; margin-top:5px; background:#333; color:white; border:1px solid #555; border-radius:4px;">
+
         <label style="font-size:13px; margin-top:10px; display:flex; align-items:center; cursor:pointer;">
             <input type="checkbox" id="cfg-autovi" ${Config.autoVi ? 'checked' : ''} style="margin-right:8px; width:18px; height:18px;">
             Tự động hiển thị Vietsub gốc của video
@@ -581,11 +602,17 @@ export function injectUI() {
     settingOverlay.querySelector('#btn-save-setting').addEventListener('click', () => {
         Config.ctx = parseInt(document.getElementById('cfg-ctx').value) || 3;
         Config.timeOffset = parseFloat(document.getElementById('cfg-timeoffset').value) || 0;
+        Config.rewindSec = Math.min(10, Math.max(1, parseInt(document.getElementById('cfg-rewind-sec').value) || 5));
         Config.autoVi = document.getElementById('cfg-autovi').checked;
         Config.overlap = document.getElementById('cfg-overlap').checked;
         Config.aiUrl = document.getElementById('cfg-ai-url').value.trim();
         Config.aiKey = document.getElementById('cfg-ai-key').value.trim();
         Config.aiModel = document.getElementById('cfg-ai-model').value.trim();
+
+        if (btnRewind) {
+            btnRewind.title = `Tua lại ${Config.rewindSec}s`;
+            btnRewind.setAttribute('aria-label', `Tua lại ${Config.rewindSec}s`);
+        }
 
         settingOverlay.style.display = 'none';
 
@@ -609,6 +636,59 @@ export function injectUI() {
         color: #fff;
         padding-bottom: 10px;
     `;
+
+    // Cơ chế LazyColumn: Tự động nạp thêm dữ liệu khi người dùng cuộn lên (quá khứ) hoặc cuộn xuống (tương lai)
+    textArea.addEventListener('scroll', () => {
+        UIState.isUserScrolling = true;
+        clearTimeout(UIState.userScrollTimer);
+        UIState.userScrollTimer = setTimeout(() => {
+            UIState.isUserScrolling = false;
+        }, 1500);
+
+        const subs = SubtitleState.parsedSubs;
+        if (!subs || subs.length === 0) return;
+        const win = UIState.lazyWindow;
+        if (win.start === -1) return;
+
+        // Cuộn gần lên đỉnh (còn cách <= 40px) -> Nạp thêm các câu quá khứ
+        if (textArea.scrollTop <= 40 && win.start > 0) {
+            const addCount = 5;
+            const newStart = Math.max(0, win.start - addCount);
+            if (newStart < win.start) {
+                let prependHtml = "";
+                for (let i = newStart; i < win.start; i++) {
+                    prependHtml += buildSubBlockHtml(subs[i], i, false);
+                }
+                const oldScrollHeight = textArea.scrollHeight;
+                const tempDiv = document.createElement('div');
+                tempDiv.innerHTML = safeHTML(prependHtml);
+                while (tempDiv.lastChild) {
+                    textArea.insertBefore(tempDiv.lastChild, textArea.firstChild);
+                }
+                textArea.scrollTop += (textArea.scrollHeight - oldScrollHeight);
+                win.start = newStart;
+            }
+        }
+
+        // Cuộn gần xuống đáy (còn cách <= 40px) -> Nạp thêm các câu tương lai
+        if (textArea.scrollTop + textArea.clientHeight >= textArea.scrollHeight - 40 && win.end < subs.length - 1) {
+            const addCount = 8;
+            const newEnd = Math.min(subs.length - 1, win.end + addCount);
+            if (newEnd > win.end) {
+                let appendHtml = "";
+                for (let i = win.end + 1; i <= newEnd; i++) {
+                    appendHtml += buildSubBlockHtml(subs[i], i, false);
+                }
+                const tempDiv = document.createElement('div');
+                tempDiv.innerHTML = safeHTML(appendHtml);
+                while (tempDiv.firstChild) {
+                    textArea.appendChild(tempDiv.firstChild);
+                }
+                win.end = newEnd;
+            }
+        }
+    }, { passive: true });
+
     panel.appendChild(textArea);
 
     const bottomBar = document.createElement('div');
@@ -625,15 +705,32 @@ export function injectUI() {
     const btnAi = createToolButton('sparkles', 'Dịch bằng AI');
     const btnAdd = createToolButton('bookmarkPlus', 'Lưu từ vựng thường');
     const btnOutput = createToolButton('microphonePlus', 'Thêm vào hệ thống học output');
+    btnRewind = createToolButton('rewind', `Tua lại ${Config.rewindSec}s`);
     const btnPlay = createToolButton('playerPlay', 'Phát tiếp video');
 
     bottomBar.appendChild(btnGoogle);
     bottomBar.appendChild(btnAi);
     bottomBar.appendChild(btnAdd);
     bottomBar.appendChild(btnOutput);
+    bottomBar.appendChild(btnRewind);
     bottomBar.appendChild(btnPlay);
 
     panel.appendChild(bottomBar);
+
+    btnRewind.addEventListener('click', () => {
+        const video = document.querySelector('video');
+        if (video) {
+            const sec = Number(Config.rewindSec || 5);
+            video.currentTime = Math.max(0, video.currentTime - sec);
+            UIState.lastRenderedIndex = -1;
+            syncTranscript(video.currentTime);
+
+            btnRewind.style.transform = 'scale(0.88)';
+            setTimeout(() => {
+                btnRewind.style.transform = '';
+            }, 120);
+        }
+    });
 
     btnPin.addEventListener('click', () => {
         UIState.isMenuPinned = !UIState.isMenuPinned;

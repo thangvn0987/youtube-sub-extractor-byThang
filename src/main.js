@@ -24,6 +24,7 @@ function setupVideoHooks() {
             if (textArea) {
                 UIState.lastRenderedIndex = -1;
                 UIState.lastStartIndex = -1;
+                UIState.lazyWindow = { start: -1, end: -1 };
                 syncTranscript(video.currentTime);
             }
             updateLayout();

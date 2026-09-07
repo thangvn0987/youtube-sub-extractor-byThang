@@ -15,26 +15,56 @@ function formatTime(seconds) {
 }
 
 function mergeSubs() {
-    if (SubtitleState.enSubs.length === 0) return;
-    let tempRaw = "";
-    SubtitleState.parsedSubs = SubtitleState.enSubs.map((en, i) => {
+    const enList = SubtitleState.enSubs;
+    const viList = SubtitleState.viSubs;
+    if (!enList || enList.length === 0) return;
+
+    let viIdx = 0;
+    const viLen = viList.length;
+    const parsed = new Array(enList.length);
+    const srtParts = [];
+
+    // Tối ưu: Thuật toán 2 con trỏ O(N + M) thay vì quét lặp lồng nhau O(N*M)
+    for (let i = 0; i < enList.length; i++) {
+        const en = enList[i];
         let viText = "";
-        if (SubtitleState.viSubs.length > 0) {
-            let vi = SubtitleState.viSubs.find(v => Math.abs(v.start - en.start) < 0.5);
-            if (!vi) vi = SubtitleState.viSubs[i];
-            if (vi) viText = vi.text;
+
+        if (viLen > 0) {
+            // Tịnh tiến con trỏ viIdx đến vùng thời gian tương ứng
+            while (viIdx < viLen && viList[viIdx].end < en.start - 0.5) {
+                viIdx++;
+            }
+            // Tìm phần tử viSub gần nhất trong phạm vi lân cận cực nhỏ (tối đa 4 phần tử)
+            let bestVi = null;
+            let minDiff = 0.5;
+            const searchLimit = Math.min(viLen, viIdx + 4);
+            for (let k = Math.max(0, viIdx - 1); k < searchLimit; k++) {
+                const diff = Math.abs(viList[k].start - en.start);
+                if (diff < minDiff) {
+                    minDiff = diff;
+                    bestVi = viList[k];
+                }
+            }
+            if (bestVi) {
+                viText = bestVi.text;
+            } else if (i < viLen && Math.abs(viList[i].start - en.start) < 1.0) {
+                viText = viList[i].text;
+            }
         }
-        tempRaw += (i + 1) + "\n";
-        tempRaw += formatTime(en.start) + " --> " + formatTime(en.end) + "\n";
-        tempRaw += en.text + "\n\n";
-        return {
+
+        parsed[i] = {
             start: en.start,
             end: en.end,
             text: en.text,
             text_vi: viText
         };
-    });
-    SubtitleState.rawSrtData = tempRaw;
+
+        srtParts.push(`${i + 1}\n${formatTime(en.start)} --> ${formatTime(en.end)}\n${en.text}\n\n`);
+    }
+
+    SubtitleState.parsedSubs = parsed;
+    SubtitleState.rawSrtData = srtParts.join('');
+
     let vid = new URLSearchParams(window.location.search).get('v');
     if (!vid && window.location.pathname.includes('/shorts/')) {
         vid = window.location.pathname.split('/shorts/')[1];
@@ -44,71 +74,39 @@ function mergeSubs() {
 
 function processInterceptedData(url, text, isVietsub) {
     if (!text) return;
-    try {
-        const jsonObj = JSON.parse(text);
-        if (jsonObj.events) {
-            let tempSubs = [];
-            for (let event of jsonObj.events) {
-                if (!event.segs) continue;
-                let startMs = event.tStartMs || 0;
-                let durationMs = event.dDurationMs || 0;
-                let sentence = event.segs
-                    .map(seg => seg.utf8)
-                    .join("")
-                    .replace(/\n/g, " ")
-                    .trim();
-                if (!sentence) continue;
-                let startSec = startMs / 1000;
-                let endSec = (startMs + durationMs) / 1000;
 
-                if (!tempSubs.some(s => Math.abs(s.start - startSec) < 0.1 && s.text === sentence)) {
+    // Chuyển việc parse ra ngoài luồng render để không bao giờ làm khựng video
+    setTimeout(() => {
+        try {
+            const jsonObj = JSON.parse(text);
+            if (jsonObj.events) {
+                let tempSubs = [];
+                for (let event of jsonObj.events) {
+                    if (!event.segs) continue;
+                    let startMs = event.tStartMs || 0;
+                    let durationMs = event.dDurationMs || 0;
+                    let sentence = event.segs
+                        .map(seg => seg.utf8)
+                        .join("")
+                        .replace(/\n/g, " ")
+                        .trim();
+                    if (!sentence) continue;
+                    let startSec = startMs / 1000;
+                    let endSec = (startMs + durationMs) / 1000;
+
+                    // Tối ưu: Chỉ so sánh với phần tử cuối cùng O(1) thay vì some() duyệt toàn bộ mảng O(N)
+                    const last = tempSubs[tempSubs.length - 1];
+                    if (last && Math.abs(last.start - startSec) < 0.1 && last.text === sentence) {
+                        continue;
+                    }
+
                     tempSubs.push({
                         start: startSec,
                         end: endSec,
                         text: sentence
                     });
                 }
-            }
-            if (!isVietsub) {
-                SubtitleState.enSubs = tempSubs;
-                if (!url.includes('tlang=')) {
-                    let viUrl = url + (url.includes('?') ? '&' : '?') + 'tlang=vi';
-                    fetch(viUrl)
-                        .then(r => r.text())
-                        .then(t => processInterceptedData(viUrl, t, true))
-                        .catch(() => {});
-                }
-            } else {
-                SubtitleState.viSubs = tempSubs;
-            }
-            mergeSubs();
-        }
-    } catch(e) {
-        try {
-            const parser = new DOMParser();
-            const xmlDoc = parser.parseFromString(text, "text/xml");
-            const textNodes = xmlDoc.getElementsByTagName('text');
-            if (textNodes.length > 0) {
-                let tempSubs = [];
-                for (let i = 0; i < textNodes.length; i++) {
-                    let node = textNodes[i];
-                    let start = parseFloat(node.getAttribute('start'));
-                    let dur = parseFloat(node.getAttribute('dur'));
-                    let sentence = node.textContent
-                        .replace(/&amp;/g, '&')
-                        .replace(/&quot;/g, '"')
-                        .replace(/&#39;/g, "'")
-                        .replace(/&lt;/g, '<')
-                        .replace(/&gt;/g, '>')
-                        .trim();
-                    if (!tempSubs.some(s => Math.abs(s.start - start) < 0.1 && s.text === sentence)) {
-                        tempSubs.push({
-                            start: start,
-                            end: start + dur,
-                            text: sentence
-                        });
-                    }
-                }
+
                 if (!isVietsub) {
                     SubtitleState.enSubs = tempSubs;
                     if (!url.includes('tlang=')) {
@@ -122,9 +120,56 @@ function processInterceptedData(url, text, isVietsub) {
                     SubtitleState.viSubs = tempSubs;
                 }
                 mergeSubs();
+                return;
             }
-        } catch(ex) {}
-    }
+        } catch(e) {
+            try {
+                const parser = new DOMParser();
+                const xmlDoc = parser.parseFromString(text, "text/xml");
+                const textNodes = xmlDoc.getElementsByTagName('text');
+                if (textNodes.length > 0) {
+                    let tempSubs = [];
+                    for (let i = 0; i < textNodes.length; i++) {
+                        let node = textNodes[i];
+                        let start = parseFloat(node.getAttribute('start'));
+                        let dur = parseFloat(node.getAttribute('dur'));
+                        let sentence = node.textContent
+                            .replace(/&amp;/g, '&')
+                            .replace(/&quot;/g, '"')
+                            .replace(/&#39;/g, "'")
+                            .replace(/&lt;/g, '<')
+                            .replace(/&gt;/g, '>')
+                            .trim();
+
+                        const last = tempSubs[tempSubs.length - 1];
+                        if (last && Math.abs(last.start - start) < 0.1 && last.text === sentence) {
+                            continue;
+                        }
+
+                        tempSubs.push({
+                            start: start,
+                            end: start + dur,
+                            text: sentence
+                        });
+                    }
+
+                    if (!isVietsub) {
+                        SubtitleState.enSubs = tempSubs;
+                        if (!url.includes('tlang=')) {
+                            let viUrl = url + (url.includes('?') ? '&' : '?') + 'tlang=vi';
+                            fetch(viUrl)
+                                .then(r => r.text())
+                                .then(t => processInterceptedData(viUrl, t, true))
+                                .catch(() => {});
+                        }
+                    } else {
+                        SubtitleState.viSubs = tempSubs;
+                    }
+                    mergeSubs();
+                }
+            } catch(ex) {}
+        }
+    }, 0);
 }
 
 export function setupInterceptors() {
