@@ -1,59 +1,74 @@
 import { setupInterceptors, SubtitleState } from './subtitle_parser.js';
 import { injectUI, updateLayout, resetLayout, syncTranscript, UIState } from './ui.js';
+import { initQuizFloatingWidget } from './quiz_widget.js';
 
-setupInterceptors();
+const isYouTube = window.location.hostname.includes('youtube.com');
 
-function setupVideoHooks() {
-    const video = document.querySelector('video');
-    if (!video) return;
+if (isYouTube) {
+    // ============================================================
+    // PHIÊN BẢN YOUTUBE — GIỮ NGUYÊN 100% GIAO DIỆN & TÍNH NĂNG CŨ
+    // ============================================================
+    setupInterceptors();
 
-    if (!video.dataset.hooked) {
-        video.dataset.hooked = 'true';
+    function setupVideoHooks() {
+        const video = document.querySelector('video');
+        if (!video) return;
 
-        video.addEventListener('pause', () => {
-            let vid = new URLSearchParams(window.location.search).get('v');
-            if (!vid && window.location.pathname.includes('/shorts/')) {
-                vid = window.location.pathname.split('/shorts/')[1];
-            }
-            if (!vid) vid = 'unknown_test_id';
-            SubtitleState.currentVideoId = vid;
+        if (!video.dataset.hooked) {
+            video.dataset.hooked = 'true';
 
-            injectUI();
+            video.addEventListener('pause', () => {
+                let vid = new URLSearchParams(window.location.search).get('v');
+                if (!vid && window.location.pathname.includes('/shorts/')) {
+                    vid = window.location.pathname.split('/shorts/')[1];
+                }
+                if (!vid) vid = 'unknown_test_id';
+                SubtitleState.currentVideoId = vid;
 
-            const textArea = document.getElementById('custom-sub-text');
-            if (textArea) {
-                UIState.lastRenderedIndex = -1;
-                UIState.lastStartIndex = -1;
-                UIState.lazyWindow = { start: -1, end: -1 };
-                syncTranscript(video.currentTime);
-            }
+                injectUI();
+
+                const textArea = document.getElementById('custom-sub-text');
+                if (textArea) {
+                    UIState.lastRenderedIndex = -1;
+                    UIState.lastStartIndex = -1;
+                    UIState.lazyWindow = { start: -1, end: -1 };
+                    syncTranscript(video.currentTime);
+                }
+                updateLayout();
+            });
+
+            video.addEventListener('play', () => {
+                resetLayout();
+            });
+
+            video.addEventListener('timeupdate', () => {
+                if (!UIState.isUiInjected || !UIState.isMenuPinned) return;
+                const panel = document.getElementById('custom-sub-panel');
+                
+                if (panel && panel.style.display !== 'none') {
+                    syncTranscript(video.currentTime);
+                }
+            });
+        }
+    }
+
+    window.addEventListener('resize', () => {
+        const panel = document.getElementById('custom-sub-panel');
+        if (panel && panel.style.display !== 'none') {
             updateLayout();
-        });
+        }
+    });
 
-        video.addEventListener('play', () => {
-            resetLayout();
-        });
+    setInterval(() => {
+        if (window.location.pathname.includes('/watch') || document.querySelector('video')) {
+            setupVideoHooks();
+        }
+    }, 1500);
 
-        video.addEventListener('timeupdate', () => {
-            if (!UIState.isUiInjected || !UIState.isMenuPinned) return;
-            const panel = document.getElementById('custom-sub-panel');
-            
-            if (panel && panel.style.display !== 'none') {
-                syncTranscript(video.currentTime);
-            }
-        });
-    }
+} else {
+    // ============================================================
+    // CÁC TRANG WEB KHÁC (STUDY4, WEB LUYỆN ĐỀ, BÁO CHÍ,...)
+    // MENU NỔI KÉO THẢ PHÂN TÍCH CÂU HỎI TRẮC NGHIỆM TOEIC
+    // ============================================================
+    initQuizFloatingWidget();
 }
-
-window.addEventListener('resize', () => {
-    const panel = document.getElementById('custom-sub-panel');
-    if (panel && panel.style.display !== 'none') {
-        updateLayout();
-    }
-});
-
-setInterval(() => {
-    if (window.location.pathname.includes('/watch') || document.querySelector('video')) {
-        setupVideoHooks();
-    }
-}, 1500);

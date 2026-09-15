@@ -32,5 +32,6 @@ export const Config = {
     // Các thông số tĩnh (Hệ thống backend)
     MASTER_WEB_APP_URL: "https://script.google.com/macros/s/AKfycbzLGxMDjEk1YSk1_ZQrNNo5Z5OQfVONoC0i18bYm48-RxYjcGOiRR8i4rn3Jg6cm2O5/exec",
     OUTPUT_BACKEND_TOKEN: "victor-output-vocab-001",
-    NORMAL_BACKEND_TOKEN: "victor-normal-vocab-001"
+    NORMAL_BACKEND_TOKEN: "victor-normal-vocab-001",
+    TOEIC_BACKEND_TOKEN: "victor-toeic-vocab-001"
 };

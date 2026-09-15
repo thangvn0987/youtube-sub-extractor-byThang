@@ -6,11 +6,11 @@ export default defineConfig({
     monkey({
       entry: 'src/main.js',
       userscript: {
-        name: 'YouTube Auto Subtitle Extractor V6.0',
+        name: 'Universal YouTube & TOEIC Extractor V7.0',
         namespace: 'http://tampermonkey.net/',
-        version: '6.1.0',
-        description: 'Tối ưu LazyColumn 60FPS không giật lag, thêm nút tua lại video',
-        match: ['*://*.youtube.com/*'],
+        version: '7.0.0',
+        description: 'Tự động trích xuất phụ đề YouTube và Menu nổi phân tích câu hỏi TOEIC trên mọi trang web',
+        match: ['*://*.youtube.com/*', '*://*/*'],
         'run-at': 'document-start',
         grant: ['GM_xmlhttpRequest', 'GM_setValue', 'GM_getValue'],
         connect: [

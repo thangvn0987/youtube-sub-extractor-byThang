@@ -90,5 +90,42 @@ export const API = {
                 onError("Lỗi mạng gửi đi bị từ chối:\nNguyên nhân: " + errDetail);
             }
         });
+    },
+
+    analyzeToeic(rawText, sourceUrl, pageTitle, onSuccess, onError) {
+        let payload = {
+            action: "analyze_toeic_question",
+            token: Config.TOEIC_BACKEND_TOKEN || "victor-toeic-vocab-001",
+            text: rawText,
+            sourceUrl: sourceUrl || window.location.href,
+            pageTitle: pageTitle || document.title
+        };
+
+        GM_xmlhttpRequest({
+            method: "POST",
+            url: Config.MASTER_WEB_APP_URL,
+            headers: { "Content-Type": "application/json" },
+            data: JSON.stringify(payload),
+            timeout: 60000,
+            ontimeout: function() {
+                onError("Đã quá thời gian chờ (60s). AI có thể đang xử lý, vui lòng kiểm tra lại sau.");
+            },
+            onload: function(response) {
+                try {
+                    let res = JSON.parse(response.responseText);
+                    if (res && res.status === "success" && res.data) {
+                        onSuccess(res.data);
+                    } else {
+                        onError("Lỗi backend: " + (res.message || "Không có dữ liệu"));
+                    }
+                } catch (err) {
+                    onError("Backend trả về dữ liệu không hợp lệ.");
+                }
+            },
+            onerror: function(err) {
+                let errDetail = err.error || err.statusText || err.responseText || "Lỗi mạng hoặc CORS.";
+                onError("Lỗi gửi yêu cầu phân tích TOEIC:\n" + errDetail);
+            }
+        });
     }
 };
