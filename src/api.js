@@ -127,5 +127,41 @@ export const API = {
                 onError("Lỗi gửi yêu cầu phân tích TOEIC:\n" + errDetail);
             }
         });
+    },
+
+    saveToeicCard(cardData, onSuccess, onError) {
+        let payload = {
+            action: "save_toeic_card",
+            token: Config.TOEIC_BACKEND_TOKEN || "victor-toeic-vocab-001",
+            cardData: cardData,
+            sourceUrl: window.location.href,
+            pageTitle: document.title
+        };
+
+        GM_xmlhttpRequest({
+            method: "POST",
+            url: Config.MASTER_WEB_APP_URL,
+            headers: { "Content-Type": "application/json" },
+            data: JSON.stringify(payload),
+            timeout: 30000,
+            ontimeout: function() {
+                onError("Quá thời gian chờ (30s) khi lưu thẻ.");
+            },
+            onload: function(response) {
+                try {
+                    let res = JSON.parse(response.responseText);
+                    if (res && res.status === "success") {
+                        onSuccess(res.message || "Đã lưu thẻ thành công!");
+                    } else {
+                        onError("Lỗi backend: " + (res.message || "Unknown error"));
+                    }
+                } catch (err) {
+                    onError("Phản hồi không hợp lệ.");
+                }
+            },
+            onerror: function(err) {
+                onError("Lỗi mạng khi lưu thẻ.");
+            }
+        });
     }
 };
