@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         YouTube Auto Subtitle Extractor V6.0
 // @namespace    http://tampermonkey.net/
-// @version      7.1.0
+// @version      7.2.0
 // @author
 // @description  Trích xuất phụ đề YouTube và Menu nổi phân tích câu hỏi TOEIC trên mọi trang web
 // @license      ISC
@@ -1271,12 +1271,30 @@
                 color: #0969da;
             }
             .toeic-btn-primary {
-                background: #1f883d !important;
+                background: #0969da !important;
                 color: #ffffff !important;
-                border-color: #1a7f37 !important;
+                border-color: #054da7 !important;
             }
             .toeic-btn-primary:hover {
-                background: #1a7f37 !important;
+                background: #054da7 !important;
+            }
+            .toeic-btn-input {
+                background: #f0fdf4 !important;
+                color: #166534 !important;
+                border-color: #bbf7d0 !important;
+            }
+            .toeic-btn-input:hover {
+                background: #dcfce7 !important;
+                border-color: #22c55e !important;
+            }
+            .toeic-btn-output {
+                background: #fefce8 !important;
+                color: #854d0e !important;
+                border-color: #fef08a !important;
+            }
+            .toeic-btn-output:hover {
+                background: #fef9c3 !important;
+                border-color: #eab308 !important;
             }
         </style>
 
@@ -1299,7 +1317,7 @@
             </label>
             <textarea id="toeic-text-input" rows="4" style="width: 100%; box-sizing: border-box; padding: 8px 10px; font-size: 14px; font-family: inherit; line-height: 1.5; border: 1.5px solid #d0d7de; border-radius: 8px; outline: none; resize: vertical;" placeholder="Bôi đen từ vựng, câu hoặc đề bài trắc nghiệm trên trang web..."></textarea>
 
-            <!-- Thanh công cụ 3 nút bấm -->
+            <!-- Hàng 1: Tra cứu & Giải Đề -->
             <div style="display: flex; gap: 8px; margin-top: 10px;">
                 <button id="btn-trans-google" class="toeic-btn-tool" title="Dịch nghĩa nhanh">
                     <span>🌐</span> Dịch Google
@@ -1309,6 +1327,16 @@
                 </button>
                 <button id="btn-analyze-toeic" class="toeic-btn-tool toeic-btn-primary" title="Bóc tách dạng bài, logic loại trừ">
                     <span>🎯</span> Phân Tích TOEIC
+                </button>
+            </div>
+
+            <!-- Hàng 2: Lưu Thẻ Từ Vựng Vào Anki -->
+            <div style="display: flex; gap: 8px; margin-top: 8px;">
+                <button id="btn-save-input-vocab" class="toeic-btn-tool toeic-btn-input" title="Lưu vào sheet NormalVocab (Deck Input English)">
+                    <span>📥</span> Lưu Từ Thường (Input)
+                </button>
+                <button id="btn-save-output-vocab" class="toeic-btn-tool toeic-btn-output" title="Lưu vào sheet OutputVocab (Deck English Output Vocab)">
+                    <span>🎤</span> Lưu Từ Output (Speaking)
                 </button>
             </div>
 
@@ -1420,16 +1448,27 @@
 		const btnGoogle = document.getElementById("btn-trans-google");
 		const btnAi = document.getElementById("btn-trans-ai");
 		const btnToeic = document.getElementById("btn-analyze-toeic");
+		const btnSaveInput = document.getElementById("btn-save-input-vocab");
+		const btnSaveOutput = document.getElementById("btn-save-output-vocab");
 		const settingsBtn = document.getElementById("toeic-settings-btn");
 		const settingsOverlay = document.getElementById("toeic-settings-overlay");
 		const settingsClose = document.getElementById("toeic-settings-close");
 		const settingsSave = document.getElementById("cfg-widget-save");
+		let lastContextSentence = "";
 		function openModal() {
 			let sel = "";
+			lastContextSentence = "";
 			try {
-				sel = window.getSelection().toString().trim();
+				const selection = window.getSelection();
+				sel = selection.toString().trim();
+				if (selection.rangeCount > 0) {
+					let node = selection.getRangeAt(0).commonAncestorContainer;
+					if (node.nodeType === Node.TEXT_NODE) node = node.parentElement;
+					if (node) lastContextSentence = (node.innerText || node.textContent || "").trim();
+				}
 			} catch (e) {}
 			if (sel) textInput.value = sel;
+			if (!lastContextSentence) lastContextSentence = sel;
 			resultBox.style.display = "none";
 			resultBox.innerHTML = "";
 			settingsOverlay.style.display = "none";
@@ -1479,7 +1518,7 @@
 				return;
 			}
 			showLoading("AI đang dịch theo ngữ cảnh...");
-			API.translateAI(text, text, (res) => {
+			API.translateAI(text, lastContextSentence || text, (res) => {
 				renderTranslationResult("✨ Dịch Theo Ngữ Cảnh AI", res, "#8250df");
 			}, (err) => {
 				renderError(err);
@@ -1498,12 +1537,72 @@
 				renderError(err);
 			});
 		});
+		btnSaveInput.addEventListener("click", () => {
+			const word = textInput.value.trim();
+			if (!word) {
+				alert("Vui lòng bôi đen hoặc nhập từ vựng cần lưu.");
+				return;
+			}
+			showLoading("Đang lưu từ vựng vào sheet NormalVocab...");
+			const payload = {
+				action: "add_normal_vocab",
+				type: "reading_input",
+				status: "new",
+				createdAt: new Date().toISOString(),
+				videoId: "web_" + window.location.hostname,
+				videoUrl: window.location.href,
+				videoTitle: document.title,
+				word,
+				sourceSentence: lastContextSentence || word,
+				contextText: lastContextSentence || word,
+				time: 0
+			};
+			API.saveVocab(payload, false, () => {
+				renderSuccessNotice("✅ Đã lưu thành công vào NormalVocab (Deck Input English)!");
+			}, (err) => {
+				renderError(err);
+			});
+		});
+		btnSaveOutput.addEventListener("click", () => {
+			const word = textInput.value.trim();
+			if (!word) {
+				alert("Vui lòng bôi đen hoặc nhập từ/cụm cần học output.");
+				return;
+			}
+			showLoading("Đang thêm vào OutputVocab (AI sẽ tự động sinh câu phản xạ)...");
+			const payload = {
+				action: "add_output_vocab",
+				type: "speaking_output",
+				status: "new",
+				createdAt: new Date().toISOString(),
+				videoId: "web_" + window.location.hostname,
+				videoUrl: window.location.href,
+				videoTitle: document.title,
+				word,
+				sourceSentence: lastContextSentence || word,
+				contextText: lastContextSentence || word,
+				time: 0
+			};
+			API.saveVocab(payload, true, () => {
+				renderSuccessNotice("✅ Đã thêm vào OutputVocab (Chờ AI sinh câu dịch ngược cho Anki)!");
+			}, (err) => {
+				renderError(err);
+			});
+		});
 		function showLoading(msg) {
 			resultBox.style.display = "block";
 			resultBox.innerHTML = `
             <div style="text-align: center; padding: 20px 14px; color: #0969da; background: #f6f8fa; border-radius: 8px;">
                 <span class="toeic-spin" style="width: 22px; height: 22px; border-top-color: #0969da;"></span>
                 <span style="font-weight: 600; font-size: 14px;">${msg}</span>
+            </div>
+        `;
+		}
+		function renderSuccessNotice(msg) {
+			resultBox.style.display = "block";
+			resultBox.innerHTML = `
+            <div style="background: #dafbe1; color: #1a7f37; padding: 12px 14px; border-radius: 8px; font-size: 14px; border: 1px solid #4ac26b; animation: toeicPopIn 0.2s ease;">
+                <b>${msg}</b>
             </div>
         `;
 		}

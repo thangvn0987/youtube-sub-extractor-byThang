@@ -8,7 +8,7 @@ export default defineConfig({
       userscript: {
         name: 'YouTube Auto Subtitle Extractor V6.0',
         namespace: 'http://tampermonkey.net/',
-        version: '7.1.0',
+        version: '7.2.0',
         description: 'Trích xuất phụ đề YouTube và Menu nổi phân tích câu hỏi TOEIC trên mọi trang web',
         match: ['*://*.youtube.com/*', '*://*/*'],
         'run-at': 'document-start',
